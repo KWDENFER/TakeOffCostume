@@ -31,7 +31,7 @@
 
 // Defines
 #define AUTHOR "DENFER"
-#define TAKE_OFF_COSTUME_VERSION "1.0.0 Beta"
+#define TAKE_OFF_COSTUME_VERSION "1.1.0"
 #define MAX_ITEMS 16 // максимальное количество скинов, которое может храниться у игрока в инвентаре (советую придерживаться в рамках 8 скинов)
 #define DEBUG 1
 
@@ -39,6 +39,7 @@
 ConVar gc_bSaveCostumesEveryRoundInventory;
 ConVar gc_bSaveCostumesEveryRound;
 ConVar gc_bSaveCostumesAfterDeath;
+ConVar gc_bSettingsPluginMenu;
 ConVar gc_iNotificationMode;
 ConVar gc_bNotification;
 ConVar gc_fMaxDistance;
@@ -84,13 +85,15 @@ char g_sSoundPutsOn2[PLATFORM_MAX_PATH];
 float g_fCoordinatesVictim[MAXPLAYERS+1][3];
 
 // Integers
-int g_iCheckIndexes[MAXPLAYERS+1];
 int g_iTimerLevelCounter[MAXPLAYERS+1];
+int g_iCheckIndexes[MAXPLAYERS+1];
 int g_iTimerLevel[MAXPLAYERS+1];
 
 // Booleans
-bool g_bIsCheckInterval[MAXPLAYERS+1];
+bool g_bBlockTakeOffNotification[MAXPLAYERS+1];
+bool g_bBlockMessagesPlugin[MAXPLAYERS+1];
 bool g_bStopPrintMessage[MAXPLAYERS+1];
+bool g_bIsCheckInterval[MAXPLAYERS+1];
 
 // Debug variables
 float g_fStartTime;
@@ -142,20 +145,22 @@ public void OnPluginStart()
 
     // Client Commands
     RegConsoleCmd("sm_inventory", Menu_SkinsInventory, "Открывает инвентарь игрока");
+    RegConsoleCmd("sm_toc", Menu_Settings, "Основное меню настройки плагина");
 
     // AutoExecConfig
     AutoExecConfig_SetCreateDirectory(true);
     AutoExecConfig_SetCreateFile(true);
     AutoExecConfig_SetFile("TakeOffCostume", AUTHOR);
 
-    gc_iChangeMode = AutoExecConfig_CreateConVar("sm_toc", "1", "0 - выкл. плагин, 1 - только Т, 2 - только КТ, 3 - обе команды (допустим вы выбрали 1 => если Т убивает СТ, то игрок за Т имеет возможность надеть скин проивника)", 0, true, 0.0, true, 3.0);
+    gc_iChangeMode = AutoExecConfig_CreateConVar("sm_toc_plugin", "1", "0 - выкл. плагин, 1 - только Т, 2 - только КТ, 3 - обе команды (допустим вы выбрали 1 => если Т убивает СТ, то игрок за Т имеет возможность надеть скин проивника)", 0, true, 0.0, true, 3.0);
     gc_sPrefix = AutoExecConfig_CreateConVar("sm_toc_prefix", "[{green}SM{default}]", "Префикс перед сообщениями плагина");
     gc_bLogs = AutoExecConfig_CreateConVar("sm_toc_logging", "1", "Разрешить плагину вести журнал ошибок? (0 - запретить, 1 - разрешить)", 0, true, 0.0, true, 1.0);
+    gc_bSettingsPluginMenu = AutoExecConfig_CreateConVar("sm_toc_settings_plugin", "1", "Разрешить игрокам настраивать плагин под себя (уведомления и тп)", 0, true, 0.0, true, 1.0);
     gc_iChance = AutoExecConfig_CreateConVar("sm_toc_chance", "100", "Вероятность c которой игрок имеет возможность сменить скин (ставьте 100 - если хотите, чтобы игрок в любом случае мог сменить скин)", 0, true, 1.0, true, 100.0);
     gc_fMaxDistance = AutoExecConfig_CreateConVar("sm_toc_distance", "150", "Максимальное расстояние между атакующим и жертвой (не советую ставить большое значение, но если вы хотите убрать ограничение, то ставьте 8192, по-моему это максимальная длина и соответсвенно ширина карты, но данную статистику я брал еще с GoldSource)", 0, true, 0.0, false);
     gc_bSaveCostumesEveryRound = AutoExecConfig_CreateConVar("sm_toc_savecostume_everyround", "0", "Разрешить игроку сохранять свой скин на следующий раунд (0 - запретить, 1 - разрешить)", 0, true, 0.0, true, 1.0);
     gc_bNotification = AutoExecConfig_CreateConVar("sm_toc_notification", "0", "Разрешить уведомлять атакующего после убийства игрока о том, что он может снять скин с игрока? (0 - запретить, 1 - разрешить)", 0, true, 0.0, true, 1.0);
-    gc_iRemoveBody = AutoExecConfig_CreateConVar("sm_toc_remove_body", "0", "0 - оставляет тело убитого игрока на месте, не меняя скин, если его подобрал другой игрок, 1 - удалить тело, 2 - сжечь тело, 3 - поменять скин трупа на скин игрока, который снял форму с потерпевшего (данный режим вызывает проблемы, если игрок снял форму в воде или на лестнице, то труп будет кидать во все стороны, пожалуйста, будте аккуратны с данным режимом, в крайнем случае посоветуйтесь со мной)", 0, true, 0.0, true, 3.0);
+    gc_iRemoveBody = AutoExecConfig_CreateConVar("sm_toc_remove_body", "3", "0 - оставляет тело убитого игрока на месте, не меняя скин, если его подобрал другой игрок, 1 - удалить тело, 2 - сжечь тело, 3 - поменять скин трупа на скин игрока, который снял форму с потерпевшего", 0, true, 0.0, true, 3.0);
     gc_iTimeMenu = AutoExecConfig_CreateConVar("sm_toc_menu_time", "10", "Сколько секунд удерживать меню для выбора скина (при условие, что sm_notification 1), 0 - будет активно, пока его не закроют", 0, true, 0.0, false);
     gc_iNotificationMode = AutoExecConfig_CreateConVar("sm_toc_messages_mode", "3", "0 - выключить все сообщения плагина, 1 - сообщать в чате, 2 - сообщать только в окне снизу (Hint), 3 - 1, 2 вместе", 0, true, 0.0, true, 3.0);
     gc_bInventory = AutoExecConfig_CreateConVar("sm_toc_inventory", "0", "Разрешить инвентарь, в котором игроки смогут хранить свои скины? (0 - запретить, 1 - разрешить)", 0, true, 0.0, true, 1.0);
@@ -229,7 +234,8 @@ public void OnConfigsExecuted()
         {
             LogToFile(g_logsPath, "%t", "Running_In_The_Background");
         }
-        CheckKVStruct(); // проверяем КВ структуру на наличие ошибок
+        if(gc_bInventory.BoolValue) // проверять только в том случае, если названия моделей задействуют
+            CheckKVStruct(); // проверяем КВ структуру на наличие ошибок
     } 
 }
 
@@ -288,9 +294,12 @@ public void PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 
                                 if(gc_bNotification.BoolValue || gc_bInventory.BoolValue)
                                 {
-                                    GetClientModel(victim, g_sPathModel[attacker], sizeof(g_sPathModel));
-                                    GetClientModel(attacker, g_sPathModel[victim], sizeof(g_sPathModel));
-                                    Menu_TakeOffCostume(attacker, victim);
+                                    if(!g_bBlockTakeOffNotification[attacker])
+                                    {
+                                        GetClientModel(victim, g_sPathModel[attacker], sizeof(g_sPathModel));
+                                        GetClientModel(attacker, g_sPathModel[victim], sizeof(g_sPathModel));
+                                        Menu_TakeOffCostume(attacker, victim);
+                                    }
                                 }
                                 else
                                 {
@@ -320,9 +329,12 @@ public void PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 
                                 if(gc_bNotification.BoolValue || gc_bInventory.BoolValue)
                                 {
-                                    GetClientModel(victim, g_sPathModel[attacker], sizeof(g_sPathModel));
-                                    GetClientModel(attacker, g_sPathModel[victim], sizeof(g_sPathModel));
-                                    Menu_TakeOffCostume(attacker, victim);
+                                    if(!g_bBlockTakeOffNotification[attacker])
+                                    {
+                                        GetClientModel(victim, g_sPathModel[attacker], sizeof(g_sPathModel));
+                                        GetClientModel(attacker, g_sPathModel[victim], sizeof(g_sPathModel));
+                                        Menu_TakeOffCostume(attacker, victim);
+                                    }
                                 }
                                 else
                                 {
@@ -352,9 +364,12 @@ public void PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 
                                 if(gc_bNotification.BoolValue || gc_bInventory.BoolValue)
                                 {  
-                                    GetClientModel(victim, g_sPathModel[attacker], sizeof(g_sPathModel));
-                                    GetClientModel(attacker, g_sPathModel[victim], sizeof(g_sPathModel));
-                                    Menu_TakeOffCostume(attacker, victim);
+                                    if(!g_bBlockTakeOffNotification[attacker])
+                                    {
+                                        GetClientModel(victim, g_sPathModel[attacker], sizeof(g_sPathModel));
+                                        GetClientModel(attacker, g_sPathModel[victim], sizeof(g_sPathModel));
+                                        Menu_TakeOffCostume(attacker, victim);
+                                    }
                                 }
                                 else
                                 {
@@ -381,9 +396,12 @@ public void PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 
                                 if(gc_bNotification.BoolValue || gc_bInventory.BoolValue)
                                 {
-                                    GetClientModel(victim, g_sPathModel[attacker], sizeof(g_sPathModel));
-                                    GetClientModel(attacker, g_sPathModel[victim], sizeof(g_sPathModel));
-                                    Menu_TakeOffCostume(attacker, victim);
+                                    if(!g_bBlockTakeOffNotification[attacker])
+                                    {
+                                        GetClientModel(victim, g_sPathModel[attacker], sizeof(g_sPathModel));
+                                        GetClientModel(attacker, g_sPathModel[victim], sizeof(g_sPathModel));
+                                        Menu_TakeOffCostume(attacker, victim);
+                                    }
                                 }
                                 else
                                 {
@@ -457,6 +475,98 @@ public void RoundEnd(Event event, const char[] name, bool dontBroadcast)
 
 //////////////////////////////////////////////////////////
 //                                                      //
+//                         COMMANDS                     //
+//                                                      //
+//////////////////////////////////////////////////////////
+
+public Action Menu_Settings(int client, int args)
+{
+    if(gc_bSettingsPluginMenu.BoolValue)
+    {
+        Menu menu = new Menu(HandlerMenu_Settings);
+        char info[128];
+        char mode[16];
+        FormatEx(info, sizeof(info), "%T", "Title_Menu_Settings", client);
+        menu.SetTitle(info);
+
+        if(g_bBlockTakeOffNotification[client])
+        {
+            FormatEx(mode, sizeof(mode), "%T", "Off", client);
+            FormatEx(info, sizeof(info), "%T %s", "Menu_Take_Off_Notification", client, mode);
+            menu.AddItem("take_off_notification", info);
+        }
+        else
+        {
+            FormatEx(mode, sizeof(mode), "%T", "On", client);
+            FormatEx(info, sizeof(info), "%T %s", "Menu_Take_Off_Notification", client, mode);
+            menu.AddItem("take_off_notification", info);
+        }
+
+        if(g_bBlockMessagesPlugin[client])
+        {
+            FormatEx(mode, sizeof(mode), "%T", "Off", client);
+            FormatEx(info, sizeof(info), "%T %s", "Menu_Plugin_Messages", client, mode);
+            menu.AddItem("messages", info);
+        }
+        else
+        {
+            FormatEx(mode, sizeof(mode), "%T", "On", client);
+            FormatEx(info, sizeof(info), "%T %s", "Menu_Plugin_Messages", client, mode);
+            menu.AddItem("messages", info);
+        }
+
+        menu.Display(client, MENU_TIME_FOREVER);
+    }
+
+    return Plugin_Handled;
+}
+
+public int HandlerMenu_Settings(Menu menu, MenuAction action, int param1, int param2)
+{
+    if(action == MenuAction_Select)
+    {
+        char info[PLATFORM_MAX_PATH];
+        menu.GetItem(param2, info, sizeof(info));
+
+        if(StrEqual("take_off_notification", info))
+        {
+            if(g_bBlockTakeOffNotification[param1])
+            {
+                g_bBlockTakeOffNotification[param1] = false;
+                CPrintToChat(param1, "%s %t", g_sPrefix, "UnBlock_Take_Off_Notification");
+            }
+            else
+            {
+                g_bBlockTakeOffNotification[param1] = true;
+                CPrintToChat(param1, "%s %t", g_sPrefix, "Block_Take_Off_Notification");
+            }
+
+            Menu_Settings(param1, 0);
+        }
+        else if(StrEqual("messages", info))
+        {
+            if(g_bBlockMessagesPlugin[param1])
+            {
+                g_bBlockMessagesPlugin[param1] = false;
+                CPrintToChat(param1, "%s %t", g_sPrefix, "Block_Messages");
+            }
+            else
+            {
+                g_bBlockMessagesPlugin[param1] = true;
+                CPrintToChat(param1, "%s %t", g_sPrefix, "UnBlock_Messages");
+            }
+        
+            Menu_Settings(param1, 0);
+        }
+    }
+    else if(action == MenuAction_End)
+    {
+        delete menu;
+    }
+}
+
+//////////////////////////////////////////////////////////
+//                                                      //
 //                         MENU                         //
 //                                                      //
 //////////////////////////////////////////////////////////
@@ -487,7 +597,7 @@ public Action Menu_TakeOffCostume(int attacker, int victim)
 
     Menu menu = new Menu(HandlerMenu_TakeOffCostume);
     char info[128];
-    FormatEx(info,sizeof(info),"%T", "Title_Menu", attacker);
+    FormatEx(info,sizeof(info), "%T", "Title_Menu", attacker);
     menu.SetTitle(info);
 
     if(gc_bNotification.BoolValue)
@@ -496,6 +606,7 @@ public Action Menu_TakeOffCostume(int attacker, int victim)
         menu.AddItem("yes", info);
         FormatEx(info,sizeof(info),"%T", "No", attacker);
         menu.AddItem("no", info);
+         menu.ExitButton = false;
     }
     
     if(gc_bInventory.BoolValue && gc_bNotification.BoolValue)
@@ -765,6 +876,8 @@ public Action Menu_SkinsInventory(int client, int args)
             menu.Display(client, 0);
         }
     }
+
+    return Plugin_Handled;
 }
 
 public int HandlerMenu_SkinsInventory(Menu menu, MenuAction action, int client, int param2)
@@ -1139,7 +1252,7 @@ public Action Timer_Ragdoll(Handle hTimer, Handle hDataPack)
                         AcceptEntityInput(entity, "KillHierarchy");
                     }
                 }
-                case 3:  SetEntityModel(Ragdoll, buffer);
+                case 3:  FixRagdoll(Ragdoll, buffer);
             }
         }
         GetClientModel(attacker, g_sPathModelPrevious[attacker], sizeof(g_sPathModelPrevious)); // сохраняем новый скин
@@ -1213,16 +1326,32 @@ public bool AddNewItem(int client)
 
 public void MyPrint(int client, char[] chat, char[] hint)
 {
-    switch(gc_iNotificationMode.IntValue)
+    if(!g_bBlockMessagesPlugin[client])
     {
-        case 1:
-            CPrintToChat(client, "%s", chat); 
-        case 2:
-            PrintCenterText(client, "%s", hint);
-        case 3:
+        switch(gc_iNotificationMode.IntValue)
         {
-            CPrintToChat(client, "%s",chat);
-            PrintCenterText(client, "%s", hint);
+            case 1:
+                CPrintToChat(client, "%s", chat); 
+            case 2:
+                PrintCenterText(client, "%s", hint);
+            case 3:
+            {
+                CPrintToChat(client, "%s",chat);
+                PrintCenterText(client, "%s", hint);
+            }
         }
     }
+}
+
+public void FixRagdoll(int ragdoll, char [] path)
+{
+    float pos[3];
+    GetEntPropVector(ragdoll, Prop_Send, "m_vecOrigin", pos);
+    AcceptEntityInput(ragdoll, "Kill");
+
+    int entity = CreateEntityByName("prop_ragdoll");
+    DispatchKeyValueVector(entity, "origin", pos);
+    DispatchKeyValue(entity, "spawnflags", "4");
+    SetEntityModel(entity, path);
+    DispatchSpawn(entity);
 }
